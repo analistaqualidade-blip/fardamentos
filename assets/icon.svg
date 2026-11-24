@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <rect width="512" height="512" rx="96" fill="#064E3B"/>
+  <rect x="28" y="28" width="456" height="456" rx="76" stroke="#047857" stroke-width="6"/>
+  <!-- Camisa / Farda institucional estilizada -->
+  <path d="M168 124L104 176L144 232L176 208V388C176 396.837 183.163 404 192 404H320C328.837 404 336 396.837 336 388V208L368 232L408 176L344 124L304 112C294 142 276 156 256 156C236 156 218 142 208 112L168 124Z" fill="#ECFDF5" stroke="#D1FAE5" stroke-width="8" stroke-linejoin="round"/>
+  <!-- Gola e detalhe institucional -->
+  <path d="M208 112C218 142 236 156 256 156C276 156 294 142 304 112" stroke="#064E3B" stroke-width="10" stroke-linecap="round"/>
+  <!-- Selo de check/logística -->
+  <circle cx="332" cy="340" r="64" fill="#047857" stroke="#ECFDF5" stroke-width="10"/>
+  <path d="M304 340L324 360L364 320" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

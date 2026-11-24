@@ -1,0 +1,265 @@
+:root {
+  --emerald-primary: #064e3b;
+  --emerald-dark: #0a3622;
+  --emerald-hover: #047857;
+  --emerald-accent: #d1fae5;
+  --emerald-soft: #ecfdf5;
+  --bg-app: #f3f4f6;
+  --bg-card: #ffffff;
+  --bg-table-head: #f9fafb;
+  --border-subtle: #e5e7eb;
+  --text-primary: #111827;
+  --text-secondary: #4b5563;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Foco acessível consistente com verde institucional */
+input:focus,
+select:focus,
+textarea:focus,
+button:focus-visible {
+  outline: 2px solid var(--emerald-hover);
+  outline-offset: 1px;
+}
+
+/* Scrollbar discreta */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f3f4f6;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Badges Semânticos dos 7 Status */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.15;
+  white-space: nowrap;
+  border-width: 1px;
+  border-style: solid;
+}
+
+.status-AGUARDANDO_FATURAMENTO {
+  background-color: #f3f4f6;
+  color: #374151;
+  border-color: #d1d5db;
+}
+
+.status-AGUARDANDO_PAGAMENTO {
+  background-color: #fef3c7;
+  color: #92400e;
+  border-color: #fcd34d;
+}
+
+.status-PAGO {
+  background-color: #d1fae5;
+  color: #065f46;
+  border-color: #6ee7b7;
+}
+
+.status-EM_FABRICACAO {
+  background-color: #e0f2fe;
+  color: #075985;
+  border-color: #7dd3fc;
+}
+
+.status-EM_TRANSITO {
+  background-color: #e2e8f0;
+  color: #1e293b;
+  border-color: #94a3b8;
+}
+
+.status-RECEBIDO_UNIDADE {
+  background-color: #ccfbf1;
+  color: #115e59;
+  border-color: #5eead4;
+}
+
+.status-CONCLUIDO {
+  background-color: #ecfdf5;
+  color: #064e3b;
+  border-color: #34d399;
+}
+
+/* Animações suaves para modais e toasts */
+@keyframes modalFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-modal-in {
+  animation: modalFadeIn 0.18s ease-out forwards;
+}
+
+@keyframes toastSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-toast-in {
+  animation: toastSlideIn 0.2s ease-out forwards;
+}
+
+/* Botões utilitários institucionais */
+.btn-primary {
+  background-color: var(--emerald-primary);
+  color: #ffffff;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background-color: var(--emerald-hover);
+}
+
+.btn-primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Gráficos CSS puros */
+.chart-bar-track {
+  background-color: #e5e7eb;
+  border-radius: 9999px;
+  overflow: hidden;
+  height: 0.625rem;
+}
+
+.chart-bar-fill {
+  background-color: var(--emerald-primary);
+  height: 100%;
+  border-radius: 9999px;
+  transition: width 0.35s ease;
+}
+
+/* Área de impressão oculta na tela normal */
+#print-romaneio {
+  display: none;
+}
+
+/* =========================================================
+   REGRAS DE IMPRESSÃO DE ROMANEIO (A4)
+   ========================================================= */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11px !important;
+  }
+
+  #auth-screen,
+  #app-shell,
+  #modal-container,
+  #toast-container,
+  #mobile-sidebar-backdrop {
+    display: none !important;
+  }
+
+  #print-romaneio {
+    display: block !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .romaneio-header {
+    border-bottom: 2px solid #064e3b;
+    padding-bottom: 10px;
+    margin-bottom: 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+
+  .romaneio-unit-block {
+    border: 1px solid #9ca3af;
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 14px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .romaneio-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 6px;
+  }
+
+  .romaneio-table th,
+  .romaneio-table td {
+    border: 1px solid #d1d5db;
+    padding: 5px 7px;
+    text-align: left;
+  }
+
+  .romaneio-table th {
+    background-color: #f3f4f6 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    font-weight: 700;
+  }
+
+  .romaneio-signatures {
+    margin-top: 22px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 28px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .romaneio-signature-line {
+    border-top: 1px solid #111827;
+    padding-top: 6px;
+    text-align: center;
+    font-size: 10px;
+  }
+}

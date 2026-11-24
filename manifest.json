@@ -1,0 +1,20 @@
+{
+  "name": "Gestão de Fardamentos — Jovens Aprendizes",
+  "short_name": "Fardamentos",
+  "description": "Sistema institucional ponta a ponta para solicitação, faturamento, fabricação e entrega de fardamentos para jovens aprendizes.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#F3F4F6",
+  "theme_color": "#064E3B",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "./assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
