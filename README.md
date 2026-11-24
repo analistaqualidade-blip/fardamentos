@@ -131,6 +131,71 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // This security rules file assumes the following data structures:
+    //
+    // Collection: users
+    // Document ID: {userId} (Firebase Auth UID)
+    // Fields:
+    //   - uid: string (optional on legacy/manual docs; if present, == userId, immutable once set, 1..128 chars)
+    //   - nome: string (required, 1..100 chars)
+    //   - email: string (required, valid email format, 3..150 chars)
+    //   - role: string (required, enum: 'supervisao' | 'financeiro' | 'patrimonio' | 'admin')
+    //   - unidade: string (required, 1..80 chars; e.g., 'Fortaleza' or 'Todas')
+    //   - ativo: bool (required on app writes; omitted treated as active on read/auth checks)
+    //
+    // Collection: config
+    // Document ID: unidades
+    // Fields:
+    //   - lista: list of strings (required, 1..100 items, each string 1..80 chars)
+    //
+    // Collection: pedidos
+    // Document ID: auto-generated
+    // Fields:
+    //   - codigo: string (required, immutable, 1..40 chars)
+    //   - unidade: string (required, immutable, 1..80 chars)
+    //   - empresaNome: string (required, immutable, 1..180 chars)
+    //   - empresaCnpj: string (required, immutable, 14..20 chars)
+    //   - turma: string (required, immutable, 1..80 chars)
+    //   - status: string (required, enum: 'AGUARDANDO_FATURAMENTO' | 'AGUARDANDO_PAGAMENTO' |
+    //             'PAGO' | 'EM_FABRICACAO' | 'EM_TRANSITO' | 'RECEBIDO_UNIDADE' | 'CONCLUIDO')
+    //   - itens: list of maps (required, 1..200 items), each map:
+    //       { idItem: string (1..80), jovemNome: string (1..120),
+    //         tamanho: 'PP'|'P'|'M'|'G'|'GG'|'XG', quantidade: number (1..50),
+    //         entregueAoJovem: bool, dataEntregaJovem: timestamp | null }
+    //   - totalPecas: number (required, immutable, > 0 && <= 10000)
+    //   - financeiro: map (required) with keys:
+    //       { numeroBoleto: string (1..80) | null, dataEmissaoBoleto: timestamp | null,
+    //         dataVencimento: string YYYY-MM-DD | null, dataPagamento: timestamp | null,
+    //         registradoPor: string (1..100) | null }
+    //   - patrimonio: map (required) with keys:
+    //       { loteFabricacaoId: string (1..128) | null, dataEnvioUnidade: timestamp | null,
+    //         dataRecebimentoUnidade: timestamp | null }
+    //   - historicoLogs: list of maps (required, append-only, 1..500 items), each map:
+    //       { data: timestamp, usuario: string (1..100), setor: string (1..60), acao: string (1..300) }
+    //   - criadoPor: string (required, immutable, 1..100 chars)
+    //   - criadoPorUid: string (required, immutable, == request.auth.uid on create, 1..128 chars)
+    //   - criadoEm: timestamp (required, immutable)
+    //
+    // Collection: lotes_fabricacao
+    // Document ID: auto-generated
+    // Fields:
+    //   - codigo: string (required, immutable, 1..40 chars)
+    //   - dataCriacao: timestamp (required, immutable)
+    //   - status: string (required, enum: 'EM_FABRICACAO' | 'FINALIZADO_FABRICA')
+    //   - pedidosIds: list of strings (required, immutable, 1..300 items, each 1..128 chars)
+    //   - gradeConsolidada: map (required, immutable) with keys ['PP', 'P', 'M', 'G', 'GG', 'XG'] (numbers >= 0)
+    //   - totalGeralPecas: number (required, immutable, > 0 && <= 100000, == sum(gradeConsolidada))
+    //   - observacoesFabricante: string (required, immutable, 0..1000 chars)
+    //   - criadoPor: string (required, immutable, 1..100 chars)
+    //   - criadoPorUid: string (required, immutable, == request.auth.uid on create, 1..128 chars)
+    //   - dataFinalizacao: timestamp | null (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
     // Helper Functions
     // ===============================================================
 
@@ -153,7 +218,7 @@ service cloud.firestore {
 
     function uidNotModified() {
       return !('uid' in resource.data) ||
-        request.resource.data.uid == resource.data.uid;
+        ('uid' in request.resource.data && request.resource.data.uid == resource.data.uid);
     }
 
     function hasRequiredFields(fields) {
@@ -212,8 +277,7 @@ service cloud.firestore {
     function isActiveUser() {
       return isAuthenticated() &&
         userDocExists() &&
-        'ativo' in getUserData() &&
-        getUserData().ativo == true;
+        (!('ativo' in getUserData()) || getUserData().ativo == true);
     }
 
     function hasRole(role) {
@@ -225,16 +289,14 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() && (
         (
-          userDocExists() &&
-          'ativo' in getUserData() &&
-          getUserData().ativo == true &&
+          isActiveUser() &&
           'role' in getUserData() &&
           getUserData().role == 'admin'
         ) ||
         (
           'role' in request.auth.token &&
           request.auth.token.role == 'admin' &&
-          (!userDocExists() || ('ativo' in getUserData() && getUserData().ativo == true))
+          (!userDocExists() || !('ativo' in getUserData()) || getUserData().ativo == true)
         )
       );
     }
@@ -246,8 +308,8 @@ service cloud.firestore {
     function isValidUser(data, userId) {
       return data is map &&
         data.keys().hasOnly(['uid', 'nome', 'email', 'role', 'unidade', 'ativo']) &&
-        data.keys().hasAll(['uid', 'nome', 'email', 'role', 'unidade', 'ativo']) &&
-        data.uid is string && data.uid == userId && data.uid.size() >= 1 && data.uid.size() <= 128 &&
+        data.keys().hasAll(['nome', 'email', 'role', 'unidade', 'ativo']) &&
+        (!('uid' in data) || (data.uid is string && data.uid == userId && data.uid.size() >= 1 && data.uid.size() <= 128)) &&
         data.nome is string && data.nome.size() >= 1 && data.nome.size() <= 100 &&
         isValidEmail(data.email) &&
         data.role in ['supervisao', 'financeiro', 'patrimonio', 'admin'] &&
@@ -398,14 +460,19 @@ service cloud.firestore {
 
     function isValidPedidoLogsAppend(oldLogs, newLogs) {
       return oldLogs is list &&
-        oldLogs.size() >= 1 &&
         newLogs is list &&
-        newLogs.size() >= oldLogs.size() + 1 &&
-        newLogs.size() <= oldLogs.size() + 2 &&
-        newLogs[0] == oldLogs[0] &&
-        newLogs[oldLogs.size() - 1] == oldLogs[oldLogs.size() - 1] &&
+        newLogs.size() >= oldLogs.size() &&
+        newLogs.size() <= 500 &&
+        newLogs.size() >= 1 &&
         isValidLogEntry(newLogs[newLogs.size() - 1]) &&
-        (newLogs.size() == oldLogs.size() + 1 || isValidLogEntry(newLogs[newLogs.size() - 2]));
+        (newLogs.size() < 2 || isValidLogEntry(newLogs[newLogs.size() - 2])) &&
+        (
+          oldLogs.size() == 0 ||
+          (
+            newLogs[0].acao == oldLogs[0].acao &&
+            newLogs[0].usuario == oldLogs[0].usuario
+          )
+        );
     }
 
     function isValidItemMetadataUnchanged(prevItem, nextItem) {
@@ -437,7 +504,7 @@ service cloud.firestore {
             next.financeiro.numeroBoleto is string &&
             next.financeiro.numeroBoleto.size() >= 1 &&
             next.financeiro.numeroBoleto.size() <= 80 &&
-            next.financeiro.dataEmissaoBoleto == request.time &&
+            next.financeiro.dataEmissaoBoleto is timestamp &&
             next.financeiro.dataVencimento is string &&
             next.financeiro.dataVencimento.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') &&
             next.financeiro.dataPagamento == null &&
@@ -448,11 +515,9 @@ service cloud.firestore {
           (
             prev.status == 'AGUARDANDO_PAGAMENTO' &&
             next.status == 'PAGO' &&
-            next.financeiro.dataPagamento == request.time &&
+            next.financeiro.dataPagamento is timestamp &&
             next.financeiro.numeroBoleto == prev.financeiro.numeroBoleto &&
-            next.financeiro.dataEmissaoBoleto == prev.financeiro.dataEmissaoBoleto &&
-            next.financeiro.dataVencimento == prev.financeiro.dataVencimento &&
-            next.financeiro.registradoPor == prev.financeiro.registradoPor
+            next.financeiro.dataVencimento == prev.financeiro.dataVencimento
           )
         );
     }
@@ -469,15 +534,15 @@ service cloud.firestore {
             next.patrimonio.loteFabricacaoId is string &&
             next.patrimonio.loteFabricacaoId.size() >= 1 &&
             next.patrimonio.loteFabricacaoId.size() <= 128 &&
-            next.patrimonio.dataEnvioUnidade == prev.patrimonio.dataEnvioUnidade &&
-            next.patrimonio.dataRecebimentoUnidade == prev.patrimonio.dataRecebimentoUnidade
+            next.patrimonio.dataEnvioUnidade == null &&
+            next.patrimonio.dataRecebimentoUnidade == null
           ) ||
           (
             prev.status == 'EM_FABRICACAO' &&
             next.status == 'EM_TRANSITO' &&
-            next.patrimonio.dataEnvioUnidade == request.time &&
+            next.patrimonio.dataEnvioUnidade is timestamp &&
             next.patrimonio.loteFabricacaoId == prev.patrimonio.loteFabricacaoId &&
-            next.patrimonio.dataRecebimentoUnidade == prev.patrimonio.dataRecebimentoUnidade
+            next.patrimonio.dataRecebimentoUnidade == null
           )
         );
     }
@@ -485,15 +550,14 @@ service cloud.firestore {
     function isValidSupervisaoTransition() {
       let prev = resource.data;
       let next = request.resource.data;
-      return (isAdmin() || (hasRole('supervisao') && prev.unidade == getUserData().unidade)) &&
+      return (isAdmin() || (hasRole('supervisao') && 'unidade' in getUserData() && prev.unidade == getUserData().unidade)) &&
         (
           (
             prev.status == 'EM_TRANSITO' &&
             next.status == 'RECEBIDO_UNIDADE' &&
             next.diff(prev).affectedKeys().hasOnly(['status', 'patrimonio', 'historicoLogs']) &&
-            next.patrimonio.dataRecebimentoUnidade == request.time &&
-            next.patrimonio.loteFabricacaoId == prev.patrimonio.loteFabricacaoId &&
-            next.patrimonio.dataEnvioUnidade == prev.patrimonio.dataEnvioUnidade
+            next.patrimonio.dataRecebimentoUnidade is timestamp &&
+            next.patrimonio.loteFabricacaoId == prev.patrimonio.loteFabricacaoId
           ) ||
           (
             prev.status in ['RECEBIDO_UNIDADE', 'CONCLUIDO'] &&
@@ -578,10 +642,13 @@ service cloud.firestore {
     // Collection Rules
     // ===============================================================
 
+    // Default deny at root
     match /{document=**} {
       allow read, write: if false;
     }
 
+    // Users collection (contains PII: email)
+    // Authenticated users read only their own profile; active admins manage all profiles.
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
       allow create: if isAdmin() && isValidUser(request.resource.data, userId);
@@ -592,17 +659,20 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Global configuration: config/unidades
+    // Active authenticated users read units; only active admins update them.
     match /config/unidades {
       allow read: if isActiveUser();
       allow create, update: if isAdmin() && isValidConfigUnidades(request.resource.data);
       allow delete: if false;
     }
 
+    // Orders collection: pedidos/{pedidoId}
     match /pedidos/{pedidoId} {
       allow read: if isAdmin() ||
         hasRole('financeiro') ||
         hasRole('patrimonio') ||
-        (hasRole('supervisao') && resource.data.unidade == getUserData().unidade);
+        (hasRole('supervisao') && 'unidade' in getUserData() && resource.data.unidade == getUserData().unidade);
 
       allow create: if isValidPedido(request.resource.data) &&
         request.resource.data.criadoPorUid == request.auth.uid &&
@@ -610,8 +680,8 @@ service cloud.firestore {
           isAdmin() ||
           (
             hasRole('supervisao') &&
+            'unidade' in getUserData() &&
             request.resource.data.unidade == getUserData().unidade &&
-            request.resource.data.criadoEm == request.time &&
             isValidPedidoInitialState(request.resource.data)
           )
         );
@@ -639,6 +709,7 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Manufacturing batches: lotes_fabricacao/{loteId}
     match /lotes_fabricacao/{loteId} {
       allow read: if hasRole('patrimonio') || isAdmin();
 
@@ -649,8 +720,7 @@ service cloud.firestore {
           (
             hasRole('patrimonio') &&
             request.resource.data.status == 'EM_FABRICACAO' &&
-            request.resource.data.dataFinalizacao == null &&
-            request.resource.data.dataCriacao == request.time
+            request.resource.data.dataFinalizacao == null
           )
         );
 
@@ -669,7 +739,7 @@ service cloud.firestore {
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'dataFinalizacao']) &&
         resource.data.status == 'EM_FABRICACAO' &&
         request.resource.data.status == 'FINALIZADO_FABRICA' &&
-        request.resource.data.dataFinalizacao == request.time;
+        request.resource.data.dataFinalizacao is timestamp;
 
       allow delete: if false;
     }

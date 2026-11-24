@@ -85,6 +85,50 @@ function makeLogEntry(acao, userOverride = null) {
   };
 }
 
+function buildFinanceiroPayload(currentFin, overrides = {}) {
+  return {
+    numeroBoleto: overrides.numeroBoleto !== undefined ? overrides.numeroBoleto : (currentFin?.numeroBoleto ?? null),
+    dataEmissaoBoleto:
+      overrides.dataEmissaoBoleto !== undefined
+        ? overrides.dataEmissaoBoleto
+        : (currentFin?.dataEmissaoBoleto ?? null),
+    dataVencimento:
+      overrides.dataVencimento !== undefined ? overrides.dataVencimento : (currentFin?.dataVencimento ?? null),
+    dataPagamento:
+      overrides.dataPagamento !== undefined ? overrides.dataPagamento : (currentFin?.dataPagamento ?? null),
+    registradoPor:
+      overrides.registradoPor !== undefined ? overrides.registradoPor : (currentFin?.registradoPor ?? null)
+  };
+}
+
+function buildPatrimonioPayload(currentPat, overrides = {}) {
+  return {
+    loteFabricacaoId:
+      overrides.loteFabricacaoId !== undefined
+        ? overrides.loteFabricacaoId
+        : (currentPat?.loteFabricacaoId ?? null),
+    dataEnvioUnidade:
+      overrides.dataEnvioUnidade !== undefined
+        ? overrides.dataEnvioUnidade
+        : (currentPat?.dataEnvioUnidade ?? null),
+    dataRecebimentoUnidade:
+      overrides.dataRecebimentoUnidade !== undefined
+        ? overrides.dataRecebimentoUnidade
+        : (currentPat?.dataRecebimentoUnidade ?? null)
+  };
+}
+
+function translateFirestoreError(error) {
+  const code = error?.code || '';
+  const msg = String(error?.message || '');
+  if (code === 'permission-denied' || msg.toLowerCase().includes('insufficient permissions')) {
+    return new Error(
+      'Permissão negada pelo Firestore. Verifique se você publicou as regras atualizadas de firestore.rules no Firebase Console (Firestore Database → Regras) e se seu perfil em users/{uid} está ativo.'
+    );
+  }
+  return error;
+}
+
 function sortPedidosDesc(list) {
   return [...list].sort((a, b) => {
     const da = toDate(a.criadoEm)?.getTime() || Date.now();
@@ -703,8 +747,12 @@ export async function criarPedido({ unidade, empresaNome, empresaCnpj, turma, it
     return novo;
   }
 
-  const ref = await addDoc(collection(db, 'pedidos'), payload);
-  return { id: ref.id, ...payload };
+  try {
+    const ref = await addDoc(collection(db, 'pedidos'), payload);
+    return { id: ref.id, ...payload };
+  } catch (error) {
+    throw translateFirestoreError(error);
+  }
 }
 
 export async function registrarBoleto(pedidoId, { numeroBoleto, dataVencimento }) {
@@ -726,38 +774,41 @@ export async function registrarBoleto(pedidoId, { numeroBoleto, dataVencimento }
       throw new Error('Este pedido não está mais aguardando faturamento.');
     }
     ped.status = 'AGUARDANDO_PAGAMENTO';
-    ped.financeiro = {
-      ...ped.financeiro,
+    ped.financeiro = buildFinanceiroPayload(ped.financeiro, {
       numeroBoleto: numClean,
       dataEmissaoBoleto: nowFieldTimestamp(),
       dataVencimento: vencClean,
+      dataPagamento: null,
       registradoPor: user.nome
-    };
+    });
     ped.historicoLogs = [...(ped.historicoLogs || []), logEntry];
     saveDemoDb(demoDb);
     return ped;
   }
 
-  const ref = doc(db, 'pedidos', pedidoId);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) throw new Error('Pedido não encontrado.');
-  const current = snap.data();
-  if (current.status !== 'AGUARDANDO_FATURAMENTO') {
-    throw new Error('Este pedido não está mais aguardando faturamento.');
-  }
+  try {
+    const ref = doc(db, 'pedidos', pedidoId);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) throw new Error('Pedido não encontrado.');
+    const current = snap.data();
+    if (current.status !== 'AGUARDANDO_FATURAMENTO') {
+      throw new Error('Este pedido não está mais aguardando faturamento.');
+    }
 
-  await updateDoc(ref, {
-    status: 'AGUARDANDO_PAGAMENTO',
-    financeiro: {
-      ...(current.financeiro || {}),
-      numeroBoleto: numClean,
-      dataEmissaoBoleto: serverTimestamp(),
-      dataVencimento: vencClean,
-      dataPagamento: null,
-      registradoPor: user.nome
-    },
-    historicoLogs: [...(current.historicoLogs || []), logEntry]
-  });
+    await updateDoc(ref, {
+      status: 'AGUARDANDO_PAGAMENTO',
+      financeiro: buildFinanceiroPayload(current.financeiro, {
+        numeroBoleto: numClean,
+        dataEmissaoBoleto: serverTimestamp(),
+        dataVencimento: vencClean,
+        dataPagamento: null,
+        registradoPor: user.nome
+      }),
+      historicoLogs: [...(current.historicoLogs || []), logEntry]
+    });
+  } catch (error) {
+    throw translateFirestoreError(error);
+  }
 }
 
 export async function confirmarPagamento(pedidoId) {
@@ -774,32 +825,35 @@ export async function confirmarPagamento(pedidoId) {
       throw new Error('Somente pedidos aguardando pagamento podem ser baixados.');
     }
     ped.status = 'PAGO';
-    ped.financeiro = {
-      ...ped.financeiro,
+    ped.financeiro = buildFinanceiroPayload(ped.financeiro, {
       dataPagamento: nowFieldTimestamp(),
       registradoPor: ped.financeiro?.registradoPor || user.nome
-    };
+    });
     ped.historicoLogs = [...(ped.historicoLogs || []), logEntry];
     saveDemoDb(demoDb);
     return ped;
   }
 
-  const ref = doc(db, 'pedidos', pedidoId);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) throw new Error('Pedido não encontrado.');
-  const current = snap.data();
-  if (current.status !== 'AGUARDANDO_PAGAMENTO') {
-    throw new Error('Somente pedidos aguardando pagamento podem ser baixados.');
-  }
+  try {
+    const ref = doc(db, 'pedidos', pedidoId);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) throw new Error('Pedido não encontrado.');
+    const current = snap.data();
+    if (current.status !== 'AGUARDANDO_PAGAMENTO') {
+      throw new Error('Somente pedidos aguardando pagamento podem ser baixados.');
+    }
 
-  await updateDoc(ref, {
-    status: 'PAGO',
-    financeiro: {
-      ...(current.financeiro || {}),
-      dataPagamento: serverTimestamp()
-    },
-    historicoLogs: [...(current.historicoLogs || []), logEntry]
-  });
+    await updateDoc(ref, {
+      status: 'PAGO',
+      financeiro: buildFinanceiroPayload(current.financeiro, {
+        dataPagamento: serverTimestamp(),
+        registradoPor: current.financeiro?.registradoPor || user.nome
+      }),
+      historicoLogs: [...(current.historicoLogs || []), logEntry]
+    });
+  } catch (error) {
+    throw translateFirestoreError(error);
+  }
 }
 
 export async function gerarLoteFabricacao(pedidosIds, observacoesFabricante = '') {
@@ -855,27 +909,30 @@ export async function gerarLoteFabricacao(pedidosIds, observacoesFabricante = ''
     return novoLote;
   }
 
-  const loteRef = doc(collection(db, 'lotes_fabricacao'));
-  const batch = writeBatch(db);
-  batch.set(loteRef, lotePayload);
+  try {
+    const loteRef = doc(collection(db, 'lotes_fabricacao'));
+    const batch = writeBatch(db);
+    batch.set(loteRef, lotePayload);
 
-  for (const ped of selectedPedidos) {
-    const pedRef = doc(db, 'pedidos', ped.id);
-    batch.update(pedRef, {
-      status: 'EM_FABRICACAO',
-      patrimonio: {
-        ...(ped.patrimonio || {}),
-        loteFabricacaoId: loteRef.id
-      },
-      historicoLogs: [
-        ...(ped.historicoLogs || []),
-        makeLogEntry(`Incluído na Ordem de Fabricação ${codigoLote} (${totalGeralPecas} peças no lote).`)
-      ]
-    });
+    for (const ped of selectedPedidos) {
+      const pedRef = doc(db, 'pedidos', ped.id);
+      batch.update(pedRef, {
+        status: 'EM_FABRICACAO',
+        patrimonio: buildPatrimonioPayload(ped.patrimonio, {
+          loteFabricacaoId: loteRef.id
+        }),
+        historicoLogs: [
+          ...(ped.historicoLogs || []),
+          makeLogEntry(`Incluído na Ordem de Fabricação ${codigoLote} (${totalGeralPecas} peças no lote).`)
+        ]
+      });
+    }
+
+    await batch.commit();
+    return { id: loteRef.id, ...lotePayload };
+  } catch (error) {
+    throw translateFirestoreError(error);
   }
-
-  await batch.commit();
-  return { id: loteRef.id, ...lotePayload };
 }
 
 export async function despacharLote(loteId) {
@@ -911,42 +968,45 @@ export async function despacharLote(loteId) {
     return lote;
   }
 
-  const loteRef = doc(db, 'lotes_fabricacao', loteId);
-  const loteSnap = await getDoc(loteRef);
-  if (!loteSnap.exists()) throw new Error('Lote não encontrado.');
-  const lote = loteSnap.data();
-  if (lote.status !== 'EM_FABRICACAO') {
-    throw new Error('Este lote já foi finalizado e despachado.');
-  }
-
-  const batch = writeBatch(db);
-  batch.update(loteRef, {
-    status: 'FINALIZADO_FABRICA',
-    dataFinalizacao: serverTimestamp()
-  });
-
-  for (const pid of lote.pedidosIds || []) {
-    const pedRef = doc(db, 'pedidos', pid);
-    const pedLocal = state.pedidos.find((p) => p.id === pid);
-    const pedSnap = pedLocal ? null : await getDoc(pedRef);
-    const pedData = pedLocal || (pedSnap?.exists() ? pedSnap.data() : null);
-
-    if (pedData && pedData.status === 'EM_FABRICACAO') {
-      batch.update(pedRef, {
-        status: 'EM_TRANSITO',
-        patrimonio: {
-          ...(pedData.patrimonio || {}),
-          dataEnvioUnidade: serverTimestamp()
-        },
-        historicoLogs: [
-          ...(pedData.historicoLogs || []),
-          makeLogEntry(`Lote ${lote.codigo} recebido da fábrica e despachado para ${pedData.unidade}.`)
-        ]
-      });
+  try {
+    const loteRef = doc(db, 'lotes_fabricacao', loteId);
+    const loteSnap = await getDoc(loteRef);
+    if (!loteSnap.exists()) throw new Error('Lote não encontrado.');
+    const lote = loteSnap.data();
+    if (lote.status !== 'EM_FABRICACAO') {
+      throw new Error('Este lote já foi finalizado e despachado.');
     }
-  }
 
-  await batch.commit();
+    const batch = writeBatch(db);
+    batch.update(loteRef, {
+      status: 'FINALIZADO_FABRICA',
+      dataFinalizacao: serverTimestamp()
+    });
+
+    for (const pid of lote.pedidosIds || []) {
+      const pedRef = doc(db, 'pedidos', pid);
+      const pedLocal = state.pedidos.find((p) => p.id === pid);
+      const pedSnap = pedLocal ? null : await getDoc(pedRef);
+      const pedData = pedLocal || (pedSnap?.exists() ? pedSnap.data() : null);
+
+      if (pedData && pedData.status === 'EM_FABRICACAO') {
+        batch.update(pedRef, {
+          status: 'EM_TRANSITO',
+          patrimonio: buildPatrimonioPayload(pedData.patrimonio, {
+            dataEnvioUnidade: serverTimestamp()
+          }),
+          historicoLogs: [
+            ...(pedData.historicoLogs || []),
+            makeLogEntry(`Lote ${lote.codigo} recebido da fábrica e despachado para ${pedData.unidade}.`)
+          ]
+        });
+      }
+    }
+
+    await batch.commit();
+  } catch (error) {
+    throw translateFirestoreError(error);
+  }
 }
 
 export async function confirmarRecebimentoUnidade(pedidoId) {
@@ -963,31 +1023,33 @@ export async function confirmarRecebimentoUnidade(pedidoId) {
       throw new Error('Somente pedidos em trânsito podem ser recebidos pela unidade.');
     }
     ped.status = 'RECEBIDO_UNIDADE';
-    ped.patrimonio = {
-      ...(ped.patrimonio || {}),
+    ped.patrimonio = buildPatrimonioPayload(ped.patrimonio, {
       dataRecebimentoUnidade: nowFieldTimestamp()
-    };
+    });
     ped.historicoLogs = [...(ped.historicoLogs || []), logEntry];
     saveDemoDb(demoDb);
     return ped;
   }
 
-  const pedRef = doc(db, 'pedidos', pedidoId);
-  const snap = await getDoc(pedRef);
-  if (!snap.exists()) throw new Error('Pedido não encontrado.');
-  const current = snap.data();
-  if (current.status !== 'EM_TRANSITO') {
-    throw new Error('Somente pedidos em trânsito podem ser recebidos pela unidade.');
-  }
+  try {
+    const pedRef = doc(db, 'pedidos', pedidoId);
+    const snap = await getDoc(pedRef);
+    if (!snap.exists()) throw new Error('Pedido não encontrado.');
+    const current = snap.data();
+    if (current.status !== 'EM_TRANSITO') {
+      throw new Error('Somente pedidos em trânsito podem ser recebidos pela unidade.');
+    }
 
-  await updateDoc(pedRef, {
-    status: 'RECEBIDO_UNIDADE',
-    patrimonio: {
-      ...(current.patrimonio || {}),
-      dataRecebimentoUnidade: serverTimestamp()
-    },
-    historicoLogs: [...(current.historicoLogs || []), logEntry]
-  });
+    await updateDoc(pedRef, {
+      status: 'RECEBIDO_UNIDADE',
+      patrimonio: buildPatrimonioPayload(current.patrimonio, {
+        dataRecebimentoUnidade: serverTimestamp()
+      }),
+      historicoLogs: [...(current.historicoLogs || []), logEntry]
+    });
+  } catch (error) {
+    throw translateFirestoreError(error);
+  }
 }
 
 export async function registrarEntregaJovem(pedidoId, idItem, entregue = true) {
@@ -1046,12 +1108,16 @@ export async function registrarEntregaJovem(pedidoId, idItem, entregue = true) {
     return ped;
   }
 
-  const pedRef = doc(db, 'pedidos', pedidoId);
-  const snap = await getDoc(pedRef);
-  if (!snap.exists()) throw new Error('Pedido não encontrado.');
-  const patch = buildUpdatedData(snap.data());
-  await updateDoc(pedRef, patch);
-  return patch;
+  try {
+    const pedRef = doc(db, 'pedidos', pedidoId);
+    const snap = await getDoc(pedRef);
+    if (!snap.exists()) throw new Error('Pedido não encontrado.');
+    const patch = buildUpdatedData(snap.data());
+    await updateDoc(pedRef, patch);
+    return patch;
+  } catch (error) {
+    throw translateFirestoreError(error);
+  }
 }
 
 export async function salvarUsuario({ uid, nome, email, senha, role, unidade, ativo = true, isNew = false }) {
