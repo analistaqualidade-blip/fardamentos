@@ -9,7 +9,8 @@ import {
   getCurrentUser,
   isDemoMode
 } from './auth.js';
-import { startListeners, stopListeners, subscribe, getState } from './store.js';
+import { startListeners, stopListeners, subscribe, getState, editarPedidoAdmin, excluirPedidoAdmin } from './store.js';
+import { TAMANHOS, STATUS_LIST, maskCnpj, cleanCnpj, generateId, confirmAction } from './utils.js';
 import {
   ROLES_CONFIG,
   STATUS_CONFIG,
@@ -222,7 +223,9 @@ function renderActiveModule() {
   const ctx = {
     user,
     state,
-    onOpenRaioX: (pedidoId) => openRaioXModal(pedidoId)
+    onOpenRaioX: (pedidoId) => openRaioXModal(pedidoId),
+    onEditPedido: (pedidoId) => openEditarPedidoModal(pedidoId),
+    onDeletePedido: (pedidoId) => handleExcluirPedidoAdmin(pedidoId)
   };
 
   if (activeRoute === 'admin') {
@@ -426,10 +429,229 @@ export function openRaioXModal(pedidoId) {
       </div>
     `,
     footerHtml: `
+      ${
+        getCurrentUser()?.role === 'admin'
+          ? `<button type="button" id="btn-raiox-excluir" class="px-4 py-2 rounded-lg border border-red-300 bg-white text-sm font-semibold text-red-700 hover:bg-red-50 inline-flex items-center gap-1.5 mr-auto">
+              <i data-lucide="trash-2" class="w-4 h-4"></i><span>Excluir Pedido</span>
+            </button>
+            <button type="button" id="btn-raiox-editar" class="px-4 py-2 rounded-lg border border-brand-700 bg-brand-50 text-sm font-semibold text-brand-900 hover:bg-brand-100 inline-flex items-center gap-1.5">
+              <i data-lucide="pencil" class="w-4 h-4"></i><span>Editar Pedido</span>
+            </button>`
+          : ''
+      }
       <button type="button" data-modal-close class="px-4 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-100">
         Fechar
       </button>
-    `
+    `,
+    onRender: (modalEl) => {
+      modalEl.querySelector('#btn-raiox-editar')?.addEventListener('click', () => {
+        closeModal();
+        openEditarPedidoModal(pedidoId);
+      });
+      modalEl.querySelector('#btn-raiox-excluir')?.addEventListener('click', () => {
+        closeModal();
+        handleExcluirPedidoAdmin(pedidoId);
+      });
+    }
+  });
+}
+
+export async function handleExcluirPedidoAdmin(pedidoId) {
+  const ped = getState().pedidos.find((p) => p.id === pedidoId);
+  if (!ped) {
+    showToast('Pedido não encontrado.', 'error');
+    return;
+  }
+  const ok = await confirmAction({
+    title: 'Excluir Pedido',
+    message: `Excluir definitivamente o pedido ${ped.codigo} (${ped.empresaNome} — ${ped.unidade})? Esta ação não pode ser desfeita.${ped.patrimonio?.loteFabricacaoId ? ' O pedido também será removido do lote de fabricação vinculado.' : ''}`,
+    confirmLabel: 'Excluir',
+    confirmVariant: 'danger'
+  });
+  if (!ok) return;
+  try {
+    await excluirPedidoAdmin(pedidoId);
+    showToast(`Pedido ${ped.codigo} excluído.`, 'success');
+  } catch (error) {
+    showToast(error.message || 'Erro ao excluir pedido.', 'error');
+  }
+}
+
+export function openEditarPedidoModal(pedidoId) {
+  const { pedidos, unidades } = getState();
+  const ped = pedidos.find((p) => p.id === pedidoId);
+  if (!ped) {
+    showToast('Pedido não encontrado.', 'error');
+    return;
+  }
+
+  const itens = (ped.itens || []).map((it) => ({
+    idItem: it.idItem,
+    jovemNome: it.jovemNome,
+    tamanho: it.tamanho,
+    quantidade: it.quantidade,
+    entregueAoJovem: Boolean(it.entregueAoJovem),
+    dataEntregaJovem: it.dataEntregaJovem || null
+  }));
+  const unidadeOpts = [...new Set([...(unidades || []), ped.unidade])];
+  const inputCls = 'w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white';
+
+  const renderItens = (modalEl) => {
+    const list = modalEl.querySelector('#edit-itens-list');
+    if (!list) return;
+    list.innerHTML = itens
+      .map(
+        (it, idx) => `
+      <div class="grid grid-cols-12 gap-2 items-center p-2 rounded-lg border border-gray-200 bg-white">
+        <input type="text" data-idx="${idx}" data-field="jovemNome" value="${escapeHtml(it.jovemNome)}" placeholder="Nome do jovem"
+          class="col-span-12 sm:col-span-5 px-2.5 py-1.5 text-sm border border-gray-300 rounded-lg" />
+        <select data-idx="${idx}" data-field="tamanho" class="col-span-4 sm:col-span-2 px-2 py-1.5 text-sm border border-gray-300 rounded-lg bg-white">
+          ${TAMANHOS.map((t) => `<option value="${t}" ${t === it.tamanho ? 'selected' : ''}>${t}</option>`).join('')}
+        </select>
+        <input type="number" min="1" max="50" data-idx="${idx}" data-field="quantidade" value="${it.quantidade}"
+          class="col-span-3 sm:col-span-2 px-2 py-1.5 text-sm border border-gray-300 rounded-lg" />
+        <label class="col-span-3 sm:col-span-2 inline-flex items-center gap-1.5 text-xs text-gray-700">
+          <input type="checkbox" data-idx="${idx}" data-field="entregueAoJovem" ${it.entregueAoJovem ? 'checked' : ''} class="w-4 h-4 accent-[#064E3B]" />
+          Entregue
+        </label>
+        <button type="button" data-remove-idx="${idx}" class="col-span-2 sm:col-span-1 p-1.5 rounded text-gray-400 hover:text-red-600 hover:bg-red-50" aria-label="Remover jovem">
+          <i data-lucide="trash-2" class="w-4 h-4 mx-auto"></i>
+        </button>
+      </div>`
+      )
+      .join('');
+    refreshIcons(list);
+    const total = itens.reduce((acc, it) => acc + (Number(it.quantidade) || 0), 0);
+    const totalEl = modalEl.querySelector('#edit-total');
+    if (totalEl) totalEl.textContent = `${itens.length} jovens • ${total} peças`;
+  };
+
+  openModal({
+    title: `Editar Pedido ${ped.codigo}`,
+    subtitle: 'Edição administrativa — a alteração é registrada na linha do tempo do pedido.',
+    size: 'xl',
+    bodyHtml: `
+      <form id="form-editar-pedido" class="space-y-5">
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+          <div class="md:col-span-4">
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Empresa *</label>
+            <input id="edit-empresa" type="text" value="${escapeHtml(ped.empresaNome)}" class="${inputCls}" />
+          </div>
+          <div class="md:col-span-3">
+            <label class="block text-xs font-semibold text-gray-700 mb-1">CNPJ *</label>
+            <input id="edit-cnpj" type="text" maxlength="18" value="${escapeHtml(ped.empresaCnpj)}" class="${inputCls}" />
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Turma *</label>
+            <input id="edit-turma" type="text" value="${escapeHtml(ped.turma)}" class="${inputCls}" />
+          </div>
+          <div class="md:col-span-3">
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Unidade *</label>
+            <select id="edit-unidade" class="${inputCls}">
+              ${unidadeOpts.map((u) => `<option value="${escapeHtml(u)}" ${u === ped.unidade ? 'selected' : ''}>${escapeHtml(u)}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
+          <div class="md:col-span-4">
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Status do Pedido</label>
+            <select id="edit-status" class="${inputCls}">
+              ${STATUS_LIST.map((st) => `<option value="${st}" ${st === ped.status ? 'selected' : ''}>${escapeHtml(STATUS_CONFIG[st].label)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="md:col-span-4">
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Nº do Boleto</label>
+            <input id="edit-boleto" type="text" value="${escapeHtml(ped.financeiro?.numeroBoleto || '')}" class="${inputCls} font-mono" />
+          </div>
+          <div class="md:col-span-4">
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Vencimento</label>
+            <input id="edit-venc" type="date" value="${escapeHtml(ped.financeiro?.dataVencimento || '')}" class="${inputCls}" />
+          </div>
+          <p class="md:col-span-12 text-[11px] text-gray-500">Boleto e vencimento são obrigatórios para qualquer status após "Aguardando Faturamento". Ao voltar para "Aguardando Faturamento", os dados de boleto são limpos.</p>
+        </div>
+
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <h4 class="text-sm font-bold text-gray-900">Jovens Aprendizes</h4>
+            <span id="edit-total" class="text-xs font-semibold text-brand-900 bg-brand-100 px-2.5 py-1 rounded-full"></span>
+          </div>
+          <div id="edit-itens-list" class="space-y-2"></div>
+          <button type="button" id="btn-edit-add-jovem" class="px-3 py-2 rounded-lg border border-dashed border-gray-400 text-xs font-semibold text-gray-700 hover:bg-gray-50 inline-flex items-center gap-1.5">
+            <i data-lucide="user-plus" class="w-4 h-4"></i><span>Adicionar jovem</span>
+          </button>
+        </div>
+      </form>
+    `,
+    footerHtml: `
+      <button type="button" data-modal-close class="px-4 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-100">Cancelar</button>
+      <button type="submit" form="form-editar-pedido" id="btn-salvar-edicao" class="btn-primary px-4 py-2 rounded-lg text-sm font-semibold">Salvar Alterações</button>
+    `,
+    onRender: (modalEl) => {
+      renderItens(modalEl);
+
+      const cnpjEl = modalEl.querySelector('#edit-cnpj');
+      cnpjEl?.addEventListener('input', (e) => {
+        e.target.value = maskCnpj(e.target.value);
+      });
+
+      const list = modalEl.querySelector('#edit-itens-list');
+      const onFieldChange = (e) => {
+        const idx = Number(e.target.getAttribute('data-idx'));
+        const field = e.target.getAttribute('data-field');
+        if (Number.isNaN(idx) || !field || !itens[idx]) return;
+        itens[idx][field] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+        if (field === 'quantidade') {
+          const total = itens.reduce((acc, it) => acc + (Number(it.quantidade) || 0), 0);
+          const totalEl = modalEl.querySelector('#edit-total');
+          if (totalEl) totalEl.textContent = `${itens.length} jovens • ${total} peças`;
+        }
+      };
+      list?.addEventListener('input', onFieldChange);
+      list?.addEventListener('change', onFieldChange);
+      list?.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-remove-idx]');
+        if (!btn) return;
+        itens.splice(Number(btn.getAttribute('data-remove-idx')), 1);
+        renderItens(modalEl);
+      });
+
+      modalEl.querySelector('#btn-edit-add-jovem')?.addEventListener('click', () => {
+        itens.push({
+          idItem: generateId(),
+          jovemNome: '',
+          tamanho: 'M',
+          quantidade: 2,
+          entregueAoJovem: false,
+          dataEntregaJovem: null
+        });
+        renderItens(modalEl);
+      });
+
+      modalEl.querySelector('#form-editar-pedido')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = modalEl.querySelector('#btn-salvar-edicao');
+        try {
+          if (btn) btn.disabled = true;
+          await editarPedidoAdmin(pedidoId, {
+            empresaNome: modalEl.querySelector('#edit-empresa')?.value,
+            empresaCnpj: cleanCnpj(modalEl.querySelector('#edit-cnpj')?.value),
+            turma: modalEl.querySelector('#edit-turma')?.value,
+            unidade: modalEl.querySelector('#edit-unidade')?.value,
+            status: modalEl.querySelector('#edit-status')?.value,
+            numeroBoleto: modalEl.querySelector('#edit-boleto')?.value,
+            dataVencimento: modalEl.querySelector('#edit-venc')?.value,
+            itens
+          });
+          closeModal();
+          showToast(`Pedido ${ped.codigo} atualizado pelo Administrador.`, 'success');
+        } catch (error) {
+          showToast(error.message || 'Erro ao salvar edição.', 'error');
+        } finally {
+          if (btn) btn.disabled = false;
+        }
+      });
+    }
   });
 }
 

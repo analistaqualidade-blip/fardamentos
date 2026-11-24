@@ -17,12 +17,15 @@ import {
 import { isDemoMode } from '../auth.js';
 import {
   getState,
+  excluirUsuarioAdmin,
   salvarUsuario,
   atualizarStatusUsuario,
   salvarUnidades,
   popularDadosSeed,
   resetarDadosDemo
 } from '../store.js';
+
+const handlers = { onEditPedido: null, onDeletePedido: null };
 
 const viewState = {
   subTab: 'dashboard', // 'dashboard' | 'equipe' | 'auditoria'
@@ -33,7 +36,9 @@ const viewState = {
   auditBusca: ''
 };
 
-export function renderAdminModule(container, { user, state, onOpenRaioX }) {
+export function renderAdminModule(container, { user, state, onOpenRaioX, onEditPedido, onDeletePedido }) {
+  if (onEditPedido) handlers.onEditPedido = onEditPedido;
+  if (onDeletePedido) handlers.onDeletePedido = onDeletePedido;
   container.innerHTML = `
     <div class="space-y-6">
       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -308,7 +313,7 @@ function renderDashboardExecutivo(state) {
                 <th class="px-4 py-3 font-semibold">Peças</th>
                 <th class="px-4 py-3 font-semibold">Status</th>
                 <th class="px-4 py-3 font-semibold">Criado em</th>
-                <th class="px-4 py-3 font-semibold text-right">Raio-X</th>
+                <th class="px-4 py-3 font-semibold text-right">Ações</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-200 bg-white">
@@ -334,6 +339,14 @@ function renderDashboardExecutivo(state) {
                       <button type="button" data-action="raio-x" data-pedido-id="${escapeHtml(ped.id)}"
                         class="px-2.5 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-brand-50 hover:border-brand-700 text-xs font-semibold text-gray-700">
                         Abrir Raio-X
+                      </button>
+                      <button type="button" data-action="editar-pedido" data-pedido-id="${escapeHtml(ped.id)}"
+                        class="ml-1 px-2.5 py-1.5 rounded-lg border border-brand-700 bg-brand-50 hover:bg-brand-100 text-xs font-semibold text-brand-900">
+                        Editar
+                      </button>
+                      <button type="button" data-action="excluir-pedido" data-pedido-id="${escapeHtml(ped.id)}"
+                        class="ml-1 px-2.5 py-1.5 rounded-lg border border-red-300 bg-white hover:bg-red-50 text-xs font-semibold text-red-700">
+                        Excluir
                       </button>
                     </td>
                   </tr>
@@ -408,6 +421,10 @@ function renderEquipeUnidades(state, currentUser) {
                           ? `<button type="button" data-toggle-user="${escapeHtml(u.uid)}" data-next-active="${u.ativo === false ? 'true' : 'false'}"
                               class="px-2.5 py-1 rounded-lg border ${u.ativo === false ? 'border-emerald-300 text-emerald-800 hover:bg-emerald-50' : 'border-red-200 text-red-700 hover:bg-red-50'} text-xs font-medium">
                               ${u.ativo === false ? 'Ativar' : 'Desativar'}
+                            </button>
+                            <button type="button" data-delete-user="${escapeHtml(u.uid)}" data-user-name="${escapeHtml(u.nome)}"
+                              class="px-2.5 py-1 rounded-lg border border-red-300 text-red-700 hover:bg-red-50 text-xs font-medium">
+                              Excluir
                             </button>`
                           : ''
                       }
@@ -636,6 +653,40 @@ function bindAdminEvents(container, { user, state, onOpenRaioX }) {
         showToast(nextActive ? 'Usuário reativado.' : 'Usuário desativado.', 'success');
       } catch (error) {
         showToast(error.message || 'Erro ao atualizar status do usuário.', 'error');
+      }
+    });
+  });
+
+  container.querySelectorAll('[data-action="editar-pedido"]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handlers.onEditPedido?.(btn.getAttribute('data-pedido-id'));
+    });
+  });
+
+  container.querySelectorAll('[data-action="excluir-pedido"]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handlers.onDeletePedido?.(btn.getAttribute('data-pedido-id'));
+    });
+  });
+
+  container.querySelectorAll('[data-delete-user]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const uid = btn.getAttribute('data-delete-user');
+      const nome = btn.getAttribute('data-user-name') || 'usuário';
+      const ok = await confirmAction({
+        title: 'Excluir Usuário',
+        message: `Remover o acesso de "${nome}" ao sistema (documento users/{uid} no Firestore)? A conta de login no Firebase Authentication não é apagada automaticamente; remova-a pelo Console se desejar.`,
+        confirmLabel: 'Excluir',
+        confirmVariant: 'danger'
+      });
+      if (!ok) return;
+      try {
+        await excluirUsuarioAdmin(uid);
+        showToast(`Usuário "${nome}" excluído.`, 'success');
+      } catch (error) {
+        showToast(error.message || 'Erro ao excluir usuário.', 'error');
       }
     });
   });

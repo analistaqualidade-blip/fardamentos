@@ -13,12 +13,16 @@ import {
   writeBatch,
   Timestamp,
   serverTimestamp,
+  deleteDoc,
   isFirebaseConfigured,
   createAuthUserWithoutSignOut
 } from './firebase-config.js';
 import { getCurrentUser, isDemoMode, DEMO_USERS } from './auth.js';
 import {
   UNIDADES_PADRAO,
+  STATUS_LIST,
+  TAMANHOS,
+  cleanCnpj,
   ROLES_CONFIG,
   calcularGradeItens,
   calcularGradePedidos,
@@ -1296,4 +1300,300 @@ export function resetarDadosDemo() {
   const seed = createSeedPayload(false);
   saveDemoDb(seed);
   return seed;
+}
+
+// =========================================================
+// AÇÕES EXCLUSIVAS DO ADMINISTRADOR (EDITAR / EXCLUIR)
+// =========================================================
+
+function assertAdmin() {
+  const user = getCurrentUser();
+  if (!user || user.role !== 'admin') {
+    throw new Error('Apenas administradores podem executar esta ação.');
+  }
+  return user;
+}
+
+function subtractGradeItens(grade, itens) {
+  const result = { PP: 0, P: 0, M: 0, G: 0, GG: 0, XG: 0 };
+  const sub = calcularGradeItens(itens || []);
+  for (const tam of TAMANHOS) {
+    result[tam] = Math.max(0, (Number(grade?.[tam]) || 0) - (Number(sub[tam]) || 0));
+  }
+  return result;
+}
+
+function buildAdminPedidoUpdate(current, dados) {
+  const status = dados.status;
+  if (!STATUS_LIST.includes(status)) throw new Error('Status inválido.');
+
+  const unidade = String(dados.unidade || '').trim();
+  const empresaNome = String(dados.empresaNome || '').trim();
+  const turma = String(dados.turma || '').trim();
+  const cnpjDigits = cleanCnpj(dados.empresaCnpj);
+
+  if (!unidade || !empresaNome || !turma) {
+    throw new Error('Preencha unidade, empresa e turma.');
+  }
+  if (cnpjDigits.length !== 14) {
+    throw new Error('Informe um CNPJ válido com 14 dígitos.');
+  }
+
+  const itens = (dados.itens || []).map((item) => {
+    const jovemNome = String(item.jovemNome || '').trim();
+    if (jovemNome.length < 1) throw new Error('Todos os jovens precisam ter nome.');
+    if (!TAMANHOS.includes(item.tamanho)) throw new Error('Tamanho inválido para ' + jovemNome + '.');
+    const entregue = Boolean(item.entregueAoJovem);
+    return {
+      idItem: item.idItem || generateId(),
+      jovemNome,
+      tamanho: item.tamanho,
+      quantidade: Math.max(1, Math.min(50, Number(item.quantidade) || 1)),
+      entregueAoJovem: entregue,
+      dataEntregaJovem: entregue ? (item.dataEntregaJovem || nowArrayTimestamp()) : null
+    };
+  });
+  if (itens.length === 0) throw new Error('O pedido precisa ter ao menos um jovem.');
+
+  const totalPecas = itens.reduce((acc, it) => acc + it.quantidade, 0);
+  const stepIdx = STATUS_LIST.indexOf(status);
+  const fin = current.financeiro || {};
+  const pat = current.patrimonio || {};
+
+  let financeiro;
+  if (stepIdx === 0) {
+    financeiro = buildFinanceiroPayload(null, {
+      numeroBoleto: null,
+      dataEmissaoBoleto: null,
+      dataVencimento: null,
+      dataPagamento: null,
+      registradoPor: null
+    });
+  } else {
+    const numeroBoleto = String(dados.numeroBoleto || '').trim();
+    const dataVencimento = String(dados.dataVencimento || '').trim();
+    if (!numeroBoleto) throw new Error('Informe o número do boleto para este status.');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dataVencimento)) {
+      throw new Error('Informe uma data de vencimento válida para este status.');
+    }
+    financeiro = buildFinanceiroPayload(null, {
+      numeroBoleto,
+      dataEmissaoBoleto: fin.dataEmissaoBoleto || nowFieldTimestamp(),
+      dataVencimento,
+      dataPagamento: stepIdx >= 2 ? (fin.dataPagamento || nowFieldTimestamp()) : null,
+      registradoPor: fin.registradoPor || getCurrentUser().nome
+    });
+  }
+
+  const patrimonio = buildPatrimonioPayload(null, {
+    loteFabricacaoId: stepIdx >= 3 ? (pat.loteFabricacaoId || null) : null,
+    dataEnvioUnidade: stepIdx >= 4 ? (pat.dataEnvioUnidade || nowFieldTimestamp()) : null,
+    dataRecebimentoUnidade: stepIdx >= 5 ? (pat.dataRecebimentoUnidade || nowFieldTimestamp()) : null
+  });
+
+  const logEntry = makeLogEntry(
+    `Pedido editado pelo Administrador (Unidade: ${unidade}, Status: ${status}, ${totalPecas} peças).`
+  );
+
+  return {
+    unidade,
+    empresaNome,
+    empresaCnpj: maskCnpj(cnpjDigits),
+    turma,
+    status,
+    itens,
+    totalPecas,
+    financeiro,
+    patrimonio,
+    historicoLogs: [...(current.historicoLogs || []), logEntry]
+  };
+}
+
+export async function editarPedidoAdmin(pedidoId, dados) {
+  assertAdmin();
+
+  if (isDemoMode()) {
+    const demoDb = loadDemoDb();
+    const ped = demoDb.pedidos.find((p) => p.id === pedidoId);
+    if (!ped) throw new Error('Pedido não encontrado.');
+    Object.assign(ped, buildAdminPedidoUpdate(ped, dados));
+    saveDemoDb(demoDb);
+    return ped;
+  }
+
+  try {
+    const ref = doc(db, 'pedidos', pedidoId);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) throw new Error('Pedido não encontrado.');
+    const payload = buildAdminPedidoUpdate(snap.data(), dados);
+    await updateDoc(ref, payload);
+    return payload;
+  } catch (error) {
+    throw translateFirestoreError(error);
+  }
+}
+
+export async function excluirPedidoAdmin(pedidoId) {
+  assertAdmin();
+
+  if (isDemoMode()) {
+    const demoDb = loadDemoDb();
+    const ped = demoDb.pedidos.find((p) => p.id === pedidoId);
+    if (!ped) throw new Error('Pedido não encontrado.');
+
+    const loteId = ped.patrimonio?.loteFabricacaoId;
+    const lote = loteId ? demoDb.lotes.find((l) => l.id === loteId) : null;
+    if (lote) {
+      const remaining = (lote.pedidosIds || []).filter((id) => id !== pedidoId);
+      const grade = subtractGradeItens(lote.gradeConsolidada, ped.itens);
+      const total = sumGrade(grade);
+      if (remaining.length === 0 || total <= 0) {
+        demoDb.lotes = demoDb.lotes.filter((l) => l.id !== lote.id);
+      } else {
+        lote.pedidosIds = remaining;
+        lote.gradeConsolidada = grade;
+        lote.totalGeralPecas = total;
+      }
+    }
+    demoDb.pedidos = demoDb.pedidos.filter((p) => p.id !== pedidoId);
+    saveDemoDb(demoDb);
+    return;
+  }
+
+  try {
+    const pedRef = doc(db, 'pedidos', pedidoId);
+    const snap = await getDoc(pedRef);
+    if (!snap.exists()) throw new Error('Pedido não encontrado.');
+    const ped = snap.data();
+    const batch = writeBatch(db);
+
+    const loteId = ped.patrimonio?.loteFabricacaoId;
+    if (loteId) {
+      const loteRef = doc(db, 'lotes_fabricacao', loteId);
+      const loteSnap = await getDoc(loteRef);
+      if (loteSnap.exists()) {
+        const lote = loteSnap.data();
+        const remaining = (lote.pedidosIds || []).filter((id) => id !== pedidoId);
+        const grade = subtractGradeItens(lote.gradeConsolidada, ped.itens);
+        const total = sumGrade(grade);
+        if (remaining.length === 0 || total <= 0) {
+          batch.delete(loteRef);
+        } else {
+          batch.update(loteRef, {
+            pedidosIds: remaining,
+            gradeConsolidada: grade,
+            totalGeralPecas: total
+          });
+        }
+      }
+    }
+
+    batch.delete(pedRef);
+    await batch.commit();
+  } catch (error) {
+    throw translateFirestoreError(error);
+  }
+}
+
+export async function editarLoteAdmin(loteId, { observacoesFabricante, status }) {
+  assertAdmin();
+  if (!['EM_FABRICACAO', 'FINALIZADO_FABRICA'].includes(status)) {
+    throw new Error('Status de lote inválido.');
+  }
+  const obs = String(observacoesFabricante || '').trim().slice(0, 1000);
+
+  if (isDemoMode()) {
+    const demoDb = loadDemoDb();
+    const lote = demoDb.lotes.find((l) => l.id === loteId);
+    if (!lote) throw new Error('Lote não encontrado.');
+    lote.observacoesFabricante = obs;
+    lote.status = status;
+    lote.dataFinalizacao = status === 'FINALIZADO_FABRICA' ? (lote.dataFinalizacao || nowFieldTimestamp()) : null;
+    saveDemoDb(demoDb);
+    return lote;
+  }
+
+  try {
+    const ref = doc(db, 'lotes_fabricacao', loteId);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) throw new Error('Lote não encontrado.');
+    const current = snap.data();
+    await updateDoc(ref, {
+      observacoesFabricante: obs,
+      status,
+      dataFinalizacao:
+        status === 'FINALIZADO_FABRICA' ? (current.dataFinalizacao || serverTimestamp()) : null
+    });
+  } catch (error) {
+    throw translateFirestoreError(error);
+  }
+}
+
+export async function excluirLoteAdmin(loteId) {
+  assertAdmin();
+
+  if (isDemoMode()) {
+    const demoDb = loadDemoDb();
+    const lote = demoDb.lotes.find((l) => l.id === loteId);
+    if (!lote) throw new Error('Lote não encontrado.');
+    for (const ped of demoDb.pedidos) {
+      if ((lote.pedidosIds || []).includes(ped.id) && ped.status === 'EM_FABRICACAO') {
+        ped.status = 'PAGO';
+        ped.patrimonio = buildPatrimonioPayload(ped.patrimonio, { loteFabricacaoId: null });
+        ped.historicoLogs = [
+          ...(ped.historicoLogs || []),
+          makeLogEntry(`Lote ${lote.codigo} excluído pelo Administrador. Pedido retornado para PAGO.`)
+        ];
+      }
+    }
+    demoDb.lotes = demoDb.lotes.filter((l) => l.id !== loteId);
+    saveDemoDb(demoDb);
+    return;
+  }
+
+  try {
+    const loteRef = doc(db, 'lotes_fabricacao', loteId);
+    const loteSnap = await getDoc(loteRef);
+    if (!loteSnap.exists()) throw new Error('Lote não encontrado.');
+    const lote = loteSnap.data();
+
+    const batch = writeBatch(db);
+    for (const pid of lote.pedidosIds || []) {
+      const ped = state.pedidos.find((p) => p.id === pid);
+      if (ped && ped.status === 'EM_FABRICACAO') {
+        batch.update(doc(db, 'pedidos', pid), {
+          status: 'PAGO',
+          patrimonio: buildPatrimonioPayload(ped.patrimonio, { loteFabricacaoId: null }),
+          historicoLogs: [
+            ...(ped.historicoLogs || []),
+            makeLogEntry(`Lote ${lote.codigo} excluído pelo Administrador. Pedido retornado para PAGO.`)
+          ]
+        });
+      }
+    }
+    batch.delete(loteRef);
+    await batch.commit();
+  } catch (error) {
+    throw translateFirestoreError(error);
+  }
+}
+
+export async function excluirUsuarioAdmin(uid) {
+  const user = assertAdmin();
+  if (uid === user.uid) {
+    throw new Error('Você não pode excluir a sua própria conta.');
+  }
+
+  if (isDemoMode()) {
+    const demoDb = loadDemoDb();
+    demoDb.users = demoDb.users.filter((u) => u.uid !== uid);
+    saveDemoDb(demoDb);
+    return;
+  }
+
+  try {
+    await deleteDoc(doc(db, 'users', uid));
+  } catch (error) {
+    throw translateFirestoreError(error);
+  }
 }

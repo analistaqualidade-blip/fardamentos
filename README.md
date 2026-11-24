@@ -130,6 +130,8 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Admins may edit and delete pedidos, lotes_fabricacao and (other) users.
+    // Other roles remain restricted to their workflow transitions; no deletes.
     // ===============================================================
     // Assumed Data Model
     // ===============================================================
@@ -525,6 +527,13 @@ service cloud.firestore {
       );
     }
 
+    // Cheap admin check (call only after isActiveUser() succeeded)
+    function isAdminCheap() {
+      let u = getUserData();
+      return ('role' in u && u.role == 'admin') ||
+        ('role' in request.auth.token && request.auth.token.role == 'admin');
+    }
+
     function isValidPedidoIdStr(id) {
       return id is string && id.size() >= 1 && id.size() <= 128;
     }
@@ -605,7 +614,7 @@ service cloud.firestore {
         isValidUser(request.resource.data, userId) &&
         uidNotModified() &&
         (userId != request.auth.uid || (request.resource.data.ativo == true && request.resource.data.role == 'admin'));
-      allow delete: if false;
+      allow delete: if isAdmin() && userId != request.auth.uid;
     }
 
     // Global configuration: config/unidades
@@ -635,23 +644,32 @@ service cloud.firestore {
           )
         );
 
+      // Admin: any business field (4 fields immutable). Others: restricted transitions.
       allow update: if isActiveUser() &&
         isValidPedido(request.resource.data) &&
-        areImmutableFieldsUnchanged([
-          'codigo',
-          'unidade',
-          'empresaNome',
-          'empresaCnpj',
-          'turma',
-          'totalPecas',
-          'criadoPor',
-          'criadoPorUid',
-          'criadoEm'
-        ]) &&
         isValidPedidoLogsAppend(resource.data.historicoLogs, request.resource.data.historicoLogs) &&
-        canUpdatePedido();
+        (
+          (
+            isAdminCheap() &&
+            areImmutableFieldsUnchanged(['codigo', 'criadoPor', 'criadoPorUid', 'criadoEm'])
+          ) ||
+          (
+            areImmutableFieldsUnchanged([
+              'codigo',
+              'unidade',
+              'empresaNome',
+              'empresaCnpj',
+              'turma',
+              'totalPecas',
+              'criadoPor',
+              'criadoPorUid',
+              'criadoEm'
+            ]) &&
+            canUpdatePedido()
+          )
+        );
 
-      allow delete: if false;
+      allow delete: if isAdmin();
     }
 
     // Manufacturing batches: lotes_fabricacao/{loteId}
@@ -669,24 +687,30 @@ service cloud.firestore {
           )
         );
 
-      allow update: if (hasRole('patrimonio') || isAdmin()) &&
-        isValidLoteFabricacao(request.resource.data) &&
-        areImmutableFieldsUnchanged([
-          'codigo',
-          'dataCriacao',
-          'pedidosIds',
-          'gradeConsolidada',
-          'totalGeralPecas',
-          'observacoesFabricante',
-          'criadoPor',
-          'criadoPorUid'
-        ]) &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'dataFinalizacao']) &&
-        resource.data.status == 'EM_FABRICACAO' &&
-        request.resource.data.status == 'FINALIZADO_FABRICA' &&
-        request.resource.data.dataFinalizacao is timestamp;
+      allow update: if (
+          hasRole('patrimonio') &&
+          isValidLoteFabricacao(request.resource.data) &&
+          areImmutableFieldsUnchanged([
+            'codigo',
+            'dataCriacao',
+            'pedidosIds',
+            'gradeConsolidada',
+            'totalGeralPecas',
+            'observacoesFabricante',
+            'criadoPor',
+            'criadoPorUid'
+          ]) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'dataFinalizacao']) &&
+          resource.data.status == 'EM_FABRICACAO' &&
+          request.resource.data.status == 'FINALIZADO_FABRICA' &&
+          request.resource.data.dataFinalizacao is timestamp
+        ) || (
+          isAdmin() &&
+          isValidLoteFabricacao(request.resource.data) &&
+          areImmutableFieldsUnchanged(['codigo', 'dataCriacao', 'criadoPor', 'criadoPorUid'])
+        );
 
-      allow delete: if false;
+      allow delete: if isAdmin();
     }
   }
 }

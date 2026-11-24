@@ -13,7 +13,9 @@ import {
   showToast,
   refreshIcons
 } from '../utils.js';
-import { getState, gerarLoteFabricacao, despacharLote } from '../store.js';
+import { getState, gerarLoteFabricacao, despacharLote, editarLoteAdmin, excluirLoteAdmin } from '../store.js';
+
+let patUser = null;
 
 const viewState = {
   tab: 'fila', // 'fila' | 'lotes'
@@ -24,7 +26,8 @@ const viewState = {
   busca: ''
 };
 
-export function renderPatrimonioModule(container, { state, onOpenRaioX }) {
+export function renderPatrimonioModule(container, { user, state, onOpenRaioX }) {
+  if (user) patUser = user;
   const pedidosPagos = state.pedidos.filter((p) => p.status === 'PAGO');
   const lotesEmFab = state.lotes.filter((l) => l.status === 'EM_FABRICACAO');
   const lotesFinalizados = state.lotes.filter((l) => l.status === 'FINALIZADO_FABRICA');
@@ -360,6 +363,18 @@ function renderLoteCard(lote, allPedidos) {
                   <span>Receber Lote da Fábrica &amp; Despachar</span>
                 </button>`
           }
+          ${
+            patUser?.role === 'admin'
+              ? `<button type="button" data-action="editar-lote" data-lote-id="${escapeHtml(lote.id)}"
+                  class="px-3 py-2 rounded-lg border border-brand-700 bg-brand-50 hover:bg-brand-100 text-xs font-semibold text-brand-900">
+                  Editar Lote
+                </button>
+                <button type="button" data-action="excluir-lote" data-lote-id="${escapeHtml(lote.id)}"
+                  class="px-3 py-2 rounded-lg border border-red-300 bg-white hover:bg-red-50 text-xs font-semibold text-red-700">
+                  Excluir Lote
+                </button>`
+              : ''
+          }
         </div>
       </div>
 
@@ -494,12 +509,85 @@ function bindPatrimonioEvents(container, { state, pedidosPagosFiltrados, onOpenR
     btn.addEventListener('click', () => onOpenRaioX(btn.getAttribute('data-pedido-id')));
   });
 
+  container.querySelectorAll('[data-action="editar-lote"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const lote = state.lotes.find((l) => l.id === btn.getAttribute('data-lote-id'));
+      if (lote) openEditarLoteModal(lote);
+    });
+  });
+
+  container.querySelectorAll('[data-action="excluir-lote"]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const lote = state.lotes.find((l) => l.id === btn.getAttribute('data-lote-id'));
+      if (!lote) return;
+      const ok = await confirmAction({
+        title: 'Excluir Lote de Fabricação',
+        message: `Excluir o lote ${lote.codigo}? Pedidos que estiverem EM FABRICAÇÃO neste lote retornarão para o status PAGO.`,
+        confirmLabel: 'Excluir Lote',
+        confirmVariant: 'danger'
+      });
+      if (!ok) return;
+      try {
+        await excluirLoteAdmin(lote.id);
+        showToast(`Lote ${lote.codigo} excluído.`, 'success');
+      } catch (error) {
+        showToast(error.message || 'Erro ao excluir lote.', 'error');
+      }
+    });
+  });
+
   container.querySelectorAll('[data-action="abrir-mapa-lote"]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const loteId = btn.getAttribute('data-lote-id');
       const lote = state.lotes.find((l) => l.id === loteId);
       if (lote) openMapaSeparacaoModal(lote, state.pedidos);
     });
+  });
+}
+
+function openEditarLoteModal(lote) {
+  openModal({
+    title: `Editar Lote ${lote.codigo}`,
+    subtitle: 'Edição administrativa. A grade e os pedidos do lote não são alterados aqui.',
+    size: 'md',
+    bodyHtml: `
+      <form id="form-editar-lote" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">Status do Lote</label>
+          <select id="edit-lote-status" class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white">
+            <option value="EM_FABRICACAO" ${lote.status === 'EM_FABRICACAO' ? 'selected' : ''}>Em Fabricação</option>
+            <option value="FINALIZADO_FABRICA" ${lote.status === 'FINALIZADO_FABRICA' ? 'selected' : ''}>Finalizado na Fábrica</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">Observações para o Fabricante</label>
+          <textarea id="edit-lote-obs" rows="3" maxlength="1000" class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg">${escapeHtml(lote.observacoesFabricante || '')}</textarea>
+        </div>
+      </form>
+    `,
+    footerHtml: `
+      <button type="button" data-modal-close class="px-4 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-100">Cancelar</button>
+      <button type="submit" form="form-editar-lote" id="btn-salvar-lote" class="btn-primary px-4 py-2 rounded-lg text-sm font-semibold">Salvar</button>
+    `,
+    onRender: (modalEl) => {
+      modalEl.querySelector('#form-editar-lote')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = modalEl.querySelector('#btn-salvar-lote');
+        try {
+          if (btn) btn.disabled = true;
+          await editarLoteAdmin(lote.id, {
+            status: modalEl.querySelector('#edit-lote-status')?.value,
+            observacoesFabricante: modalEl.querySelector('#edit-lote-obs')?.value
+          });
+          closeModal();
+          showToast(`Lote ${lote.codigo} atualizado.`, 'success');
+        } catch (error) {
+          showToast(error.message || 'Erro ao editar lote.', 'error');
+        } finally {
+          if (btn) btn.disabled = false;
+        }
+      });
+    }
   });
 }
 
