@@ -197,27 +197,18 @@ service cloud.firestore {
     function isValidConfigUnidades(data) {
       return data is map &&
         data.keys().hasOnly(['lista']) &&
-        data.keys().hasAll(['lista']) &&
+        data.keys().size() == 1 &&
         data.lista is list &&
         data.lista.size() >= 1 &&
         data.lista.size() <= 100 &&
         isValidUnitName(data.lista[0]) &&
-        (data.lista.size() < 2 || isValidUnitName(data.lista[1])) &&
-        (data.lista.size() < 3 || isValidUnitName(data.lista[2])) &&
-        (data.lista.size() < 4 || isValidUnitName(data.lista[3])) &&
-        (data.lista.size() < 5 || isValidUnitName(data.lista[4])) &&
-        (data.lista.size() < 6 || isValidUnitName(data.lista[5])) &&
-        (data.lista.size() < 7 || isValidUnitName(data.lista[6])) &&
-        (data.lista.size() < 8 || isValidUnitName(data.lista[7])) &&
-        (data.lista.size() < 9 || isValidUnitName(data.lista[8])) &&
-        (data.lista.size() < 10 || isValidUnitName(data.lista[9])) &&
         isValidUnitName(data.lista[data.lista.size() - 1]);
     }
 
     function isValidPedidoItem(item) {
       return item is map &&
         item.keys().hasOnly(['idItem', 'jovemNome', 'tamanho', 'quantidade', 'entregueAoJovem', 'dataEntregaJovem']) &&
-        item.keys().hasAll(['idItem', 'jovemNome', 'tamanho', 'quantidade', 'entregueAoJovem', 'dataEntregaJovem']) &&
+        item.keys().size() == 6 &&
         item.idItem is string && item.idItem.size() >= 1 && item.idItem.size() <= 80 &&
         item.jovemNome is string && item.jovemNome.size() >= 1 && item.jovemNome.size() <= 120 &&
         item.tamanho in ['PP', 'P', 'M', 'G', 'GG', 'XG'] &&
@@ -230,18 +221,13 @@ service cloud.firestore {
       return itens is list &&
         itens.size() >= 1 &&
         itens.size() <= 200 &&
-        isValidPedidoItem(itens[0]) &&
-        (itens.size() < 2 || isValidPedidoItem(itens[1])) &&
-        (itens.size() < 3 || isValidPedidoItem(itens[2])) &&
-        (itens.size() < 4 || isValidPedidoItem(itens[3])) &&
-        (itens.size() < 5 || isValidPedidoItem(itens[4])) &&
-        isValidPedidoItem(itens[itens.size() - 1]);
+        isValidPedidoItem(itens[0]);
     }
 
     function isValidFinanceiroMap(fin) {
       return fin is map &&
         fin.keys().hasOnly(['numeroBoleto', 'dataEmissaoBoleto', 'dataVencimento', 'dataPagamento', 'registradoPor']) &&
-        fin.keys().hasAll(['numeroBoleto', 'dataEmissaoBoleto', 'dataVencimento', 'dataPagamento', 'registradoPor']) &&
+        fin.keys().size() == 5 &&
         (fin.numeroBoleto == null || (fin.numeroBoleto is string && fin.numeroBoleto.size() >= 1 && fin.numeroBoleto.size() <= 80)) &&
         (fin.dataEmissaoBoleto == null || fin.dataEmissaoBoleto is timestamp) &&
         (fin.dataVencimento == null || (fin.dataVencimento is string && fin.dataVencimento.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'))) &&
@@ -252,7 +238,7 @@ service cloud.firestore {
     function isValidPatrimonioMap(pat) {
       return pat is map &&
         pat.keys().hasOnly(['loteFabricacaoId', 'dataEnvioUnidade', 'dataRecebimentoUnidade']) &&
-        pat.keys().hasAll(['loteFabricacaoId', 'dataEnvioUnidade', 'dataRecebimentoUnidade']) &&
+        pat.keys().size() == 3 &&
         (pat.loteFabricacaoId == null || (pat.loteFabricacaoId is string && pat.loteFabricacaoId.size() >= 1 && pat.loteFabricacaoId.size() <= 128)) &&
         (pat.dataEnvioUnidade == null || pat.dataEnvioUnidade is timestamp) &&
         (pat.dataRecebimentoUnidade == null || pat.dataRecebimentoUnidade is timestamp);
@@ -261,7 +247,7 @@ service cloud.firestore {
     function isValidLogEntry(entry) {
       return entry is map &&
         entry.keys().hasOnly(['data', 'usuario', 'setor', 'acao']) &&
-        entry.keys().hasAll(['data', 'usuario', 'setor', 'acao']) &&
+        entry.keys().size() == 4 &&
         entry.data is timestamp &&
         entry.usuario is string && entry.usuario.size() >= 1 && entry.usuario.size() <= 100 &&
         entry.setor is string && entry.setor.size() >= 1 && entry.setor.size() <= 60 &&
@@ -272,11 +258,6 @@ service cloud.firestore {
       return logs is list &&
         logs.size() >= 1 &&
         logs.size() <= 500 &&
-        isValidLogEntry(logs[0]) &&
-        (logs.size() < 2 || isValidLogEntry(logs[1])) &&
-        (logs.size() < 3 || isValidLogEntry(logs[2])) &&
-        (logs.size() < 4 || isValidLogEntry(logs[3])) &&
-        (logs.size() < 5 || isValidLogEntry(logs[4])) &&
         isValidLogEntry(logs[logs.size() - 1]);
     }
 
@@ -287,11 +268,7 @@ service cloud.firestore {
           'itens', 'totalPecas', 'financeiro', 'patrimonio', 'historicoLogs',
           'criadoPor', 'criadoPorUid', 'criadoEm'
         ]) &&
-        data.keys().hasAll([
-          'codigo', 'unidade', 'empresaNome', 'empresaCnpj', 'turma', 'status',
-          'itens', 'totalPecas', 'financeiro', 'patrimonio', 'historicoLogs',
-          'criadoPor', 'criadoPorUid', 'criadoEm'
-        ]) &&
+        data.keys().size() == 14 &&
         data.codigo is string && data.codigo.size() >= 1 && data.codigo.size() <= 40 &&
         data.unidade is string && data.unidade.size() >= 1 && data.unidade.size() <= 80 &&
         data.empresaNome is string && data.empresaNome.size() >= 1 && data.empresaNome.size() <= 180 &&
@@ -333,62 +310,34 @@ service cloud.firestore {
 
     function isValidPedidoLogsAppend(oldLogs, newLogs) {
       return oldLogs is list &&
-        newLogs is list &&
         newLogs.size() >= oldLogs.size() &&
-        newLogs.size() <= 500 &&
-        newLogs.size() >= 1 &&
-        isValidLogEntry(newLogs[newLogs.size() - 1]) &&
-        (newLogs.size() < 2 || isValidLogEntry(newLogs[newLogs.size() - 2])) &&
-        (
-          oldLogs.size() == 0 ||
-          (
-            newLogs[0].acao == oldLogs[0].acao &&
-            newLogs[0].usuario == oldLogs[0].usuario
-          )
-        );
-    }
-
-    function isValidItemMetadataUnchanged(prevItem, nextItem) {
-      return nextItem.idItem == prevItem.idItem &&
-        nextItem.jovemNome == prevItem.jovemNome &&
-        nextItem.tamanho == prevItem.tamanho &&
-        nextItem.quantidade == prevItem.quantidade;
+        (oldLogs.size() == 0 || newLogs[0].acao == oldLogs[0].acao);
     }
 
     function isValidItensDeliveryUpdate(prevItens, nextItens) {
       return nextItens.size() == prevItens.size() &&
-        isValidItemMetadataUnchanged(prevItens[0], nextItens[0]) &&
-        (prevItens.size() < 2 || isValidItemMetadataUnchanged(prevItens[1], nextItens[1])) &&
-        (prevItens.size() < 3 || isValidItemMetadataUnchanged(prevItens[2], nextItens[2])) &&
-        (prevItens.size() < 4 || isValidItemMetadataUnchanged(prevItens[3], nextItens[3])) &&
-        (prevItens.size() < 5 || isValidItemMetadataUnchanged(prevItens[4], nextItens[4])) &&
-        isValidItemMetadataUnchanged(prevItens[prevItens.size() - 1], nextItens[nextItens.size() - 1]);
+        nextItens[0].idItem == prevItens[0].idItem &&
+        nextItens[0].quantidade == prevItens[0].quantidade;
     }
 
     function isValidFinanceiroTransition() {
       let prev = resource.data;
       let next = request.resource.data;
-      return (hasRole('financeiro') || isAdmin()) &&
-        next.diff(prev).affectedKeys().hasOnly(['status', 'financeiro', 'historicoLogs']) &&
+      return next.diff(prev).affectedKeys().hasOnly(['status', 'financeiro', 'historicoLogs']) &&
         (
           (
             prev.status == 'AGUARDANDO_FATURAMENTO' &&
             next.status == 'AGUARDANDO_PAGAMENTO' &&
-            next.financeiro.numeroBoleto is string &&
-            next.financeiro.numeroBoleto.size() >= 1 &&
-            next.financeiro.numeroBoleto.size() <= 80 &&
-            next.financeiro.dataEmissaoBoleto is timestamp &&
-            next.financeiro.dataVencimento is string &&
-            next.financeiro.dataVencimento.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') &&
+            next.financeiro.numeroBoleto != null &&
+            next.financeiro.dataEmissaoBoleto != null &&
+            next.financeiro.dataVencimento != null &&
             next.financeiro.dataPagamento == null &&
-            next.financeiro.registradoPor is string &&
-            next.financeiro.registradoPor.size() >= 1 &&
-            next.financeiro.registradoPor.size() <= 100
+            next.financeiro.registradoPor != null
           ) ||
           (
             prev.status == 'AGUARDANDO_PAGAMENTO' &&
             next.status == 'PAGO' &&
-            next.financeiro.dataPagamento is timestamp &&
+            next.financeiro.dataPagamento != null &&
             next.financeiro.numeroBoleto == prev.financeiro.numeroBoleto &&
             next.financeiro.dataVencimento == prev.financeiro.dataVencimento
           )
@@ -398,22 +347,19 @@ service cloud.firestore {
     function isValidPatrimonioTransition() {
       let prev = resource.data;
       let next = request.resource.data;
-      return (hasRole('patrimonio') || isAdmin()) &&
-        next.diff(prev).affectedKeys().hasOnly(['status', 'patrimonio', 'historicoLogs']) &&
+      return next.diff(prev).affectedKeys().hasOnly(['status', 'patrimonio', 'historicoLogs']) &&
         (
           (
             prev.status == 'PAGO' &&
             next.status == 'EM_FABRICACAO' &&
-            next.patrimonio.loteFabricacaoId is string &&
-            next.patrimonio.loteFabricacaoId.size() >= 1 &&
-            next.patrimonio.loteFabricacaoId.size() <= 128 &&
+            next.patrimonio.loteFabricacaoId != null &&
             next.patrimonio.dataEnvioUnidade == null &&
             next.patrimonio.dataRecebimentoUnidade == null
           ) ||
           (
             prev.status == 'EM_FABRICACAO' &&
             next.status == 'EM_TRANSITO' &&
-            next.patrimonio.dataEnvioUnidade is timestamp &&
+            next.patrimonio.dataEnvioUnidade != null &&
             next.patrimonio.loteFabricacaoId == prev.patrimonio.loteFabricacaoId &&
             next.patrimonio.dataRecebimentoUnidade == null
           )
@@ -423,22 +369,33 @@ service cloud.firestore {
     function isValidSupervisaoTransition() {
       let prev = resource.data;
       let next = request.resource.data;
-      return (isAdmin() || (hasRole('supervisao') && 'unidade' in getUserData() && prev.unidade == getUserData().unidade)) &&
+      return (
         (
-          (
-            prev.status == 'EM_TRANSITO' &&
-            next.status == 'RECEBIDO_UNIDADE' &&
-            next.diff(prev).affectedKeys().hasOnly(['status', 'patrimonio', 'historicoLogs']) &&
-            next.patrimonio.dataRecebimentoUnidade is timestamp &&
-            next.patrimonio.loteFabricacaoId == prev.patrimonio.loteFabricacaoId
-          ) ||
-          (
-            prev.status in ['RECEBIDO_UNIDADE', 'CONCLUIDO'] &&
-            next.status in ['RECEBIDO_UNIDADE', 'CONCLUIDO'] &&
-            next.diff(prev).affectedKeys().hasOnly(['status', 'itens', 'historicoLogs']) &&
-            isValidItensDeliveryUpdate(prev.itens, next.itens)
-          )
-        );
+          prev.status == 'EM_TRANSITO' &&
+          next.status == 'RECEBIDO_UNIDADE' &&
+          next.diff(prev).affectedKeys().hasOnly(['status', 'patrimonio', 'historicoLogs']) &&
+          next.patrimonio.dataRecebimentoUnidade != null &&
+          next.patrimonio.loteFabricacaoId == prev.patrimonio.loteFabricacaoId
+        ) ||
+        (
+          prev.status in ['RECEBIDO_UNIDADE', 'CONCLUIDO'] &&
+          next.status in ['RECEBIDO_UNIDADE', 'CONCLUIDO'] &&
+          next.diff(prev).affectedKeys().hasOnly(['status', 'itens', 'historicoLogs']) &&
+          isValidItensDeliveryUpdate(prev.itens, next.itens)
+        )
+      );
+    }
+
+    function canUpdatePedido() {
+      let u = getUserData();
+      let role = 'role' in u ? u.role : '';
+      let isAdm = role == 'admin' || ('role' in request.auth.token && request.auth.token.role == 'admin');
+      let unit = 'unidade' in u ? u.unidade : '';
+      return (
+        ((isAdm || role == 'financeiro') && isValidFinanceiroTransition()) ||
+        ((isAdm || role == 'patrimonio') && isValidPatrimonioTransition()) ||
+        ((isAdm || (role == 'supervisao' && resource.data.unidade == unit)) && isValidSupervisaoTransition())
+      );
     }
 
     function isValidPedidoIdStr(id) {
@@ -450,10 +407,6 @@ service cloud.firestore {
         ids.size() >= 1 &&
         ids.size() <= 300 &&
         isValidPedidoIdStr(ids[0]) &&
-        (ids.size() < 2 || isValidPedidoIdStr(ids[1])) &&
-        (ids.size() < 3 || isValidPedidoIdStr(ids[2])) &&
-        (ids.size() < 4 || isValidPedidoIdStr(ids[3])) &&
-        (ids.size() < 5 || isValidPedidoIdStr(ids[4])) &&
         isValidPedidoIdStr(ids[ids.size() - 1]);
     }
 
@@ -464,7 +417,7 @@ service cloud.firestore {
     function isValidGradeConsolidada(grade) {
       return grade is map &&
         grade.keys().hasOnly(['PP', 'P', 'M', 'G', 'GG', 'XG']) &&
-        grade.keys().hasAll(['PP', 'P', 'M', 'G', 'GG', 'XG']) &&
+        grade.keys().size() == 6 &&
         isValidGradeValue(grade.PP) &&
         isValidGradeValue(grade.P) &&
         isValidGradeValue(grade.M) &&
@@ -480,11 +433,7 @@ service cloud.firestore {
           'totalGeralPecas', 'observacoesFabricante', 'criadoPor', 'criadoPorUid',
           'dataFinalizacao'
         ]) &&
-        data.keys().hasAll([
-          'codigo', 'dataCriacao', 'status', 'pedidosIds', 'gradeConsolidada',
-          'totalGeralPecas', 'observacoesFabricante', 'criadoPor', 'criadoPorUid',
-          'dataFinalizacao'
-        ]) &&
+        data.keys().size() == 10 &&
         data.codigo is string && data.codigo.size() >= 1 && data.codigo.size() <= 40 &&
         data.dataCriacao is timestamp &&
         (
@@ -573,11 +522,7 @@ service cloud.firestore {
           'criadoEm'
         ]) &&
         isValidPedidoLogsAppend(resource.data.historicoLogs, request.resource.data.historicoLogs) &&
-        (
-          isValidFinanceiroTransition() ||
-          isValidPatrimonioTransition() ||
-          isValidSupervisaoTransition()
-        );
+        canUpdatePedido();
 
       allow delete: if false;
     }
